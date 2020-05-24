@@ -30,8 +30,7 @@ namespace DriveMounter
 
         public long Capacity { get; }
 
-        public bool IsMounted =>
-            GetAllWindowsVolumes().FirstOrDefault(v => v.ID == ID)?.DriveLetter != null;
+        public bool IsMounted => DriveLetter != null;
 
         public WindowsVolume WithDriveLetter(string driveLetter) =>
             new WindowsVolume(driveLetter, DriveName, ID, FreeSpace, Capacity);
@@ -43,19 +42,7 @@ namespace DriveMounter
                 throw new InvalidOperationException("Cannot mount volume without a drive letter.");
             }
 
-            var p = Process.Start(new ProcessStartInfo("mountvol", $"{DriveLetter} {ID}")
-            {
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                CreateNoWindow = false
-            });
-
-            p.WaitForExit(milliseconds: 5000);
-
-            if (p.ExitCode != 0)
-            {
-                throw new Exception($"Could not mount: exit code {p.ExitCode}");
-            }
+            RunVolumeMounterCmd($"{DriveLetter} {ID}");
         }
 
         public void Unmount()
@@ -65,19 +52,7 @@ namespace DriveMounter
                 throw new InvalidOperationException("Cannot unmount volume without a drive letter.");
             }
 
-            var p = Process.Start(new ProcessStartInfo("mountvol", $"{DriveLetter} /P")
-            {
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                CreateNoWindow = false
-            });
-
-            p.WaitForExit(milliseconds: 5000);
-
-            if (p.ExitCode != 0)
-            {
-                throw new Exception($"Could not unmount: exit code {p.ExitCode}");
-            }
+            RunVolumeMounterCmd($"{DriveLetter} /P");
         }
 
         public override string ToString() => $"{nameof(WindowsVolume)} {{ " +
@@ -88,7 +63,7 @@ namespace DriveMounter
             $"{nameof(Capacity)} = {Capacity}" +
             $" }}";
 
-        public static List<WindowsVolume> GetAllWindowsVolumes()
+        public static List<WindowsVolume> GetWindowsVolumes()
         {
             var ms = new ManagementObjectSearcher("Select * from Win32_Volume");
             var moc = ms.Get();
@@ -122,6 +97,42 @@ namespace DriveMounter
             return new WindowsVolume(driveLetter, driveName, volumeID, freeSpace, capacity);
         }
 
+        private static void RunVolumeMounterCmd(string args)
+        {
+            Process p;
+            try
+            {
+                p = Process.Start(new ProcessStartInfo("mountvol", args)
+                {
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = false
+                });
+            }
+            catch (SystemException ex)
+            {
+                throw new VolumeMountException("Could not run volume mounter cmd.", ex);
+            }
+
+            try
+            {
+                bool exited = p.WaitForExit(milliseconds: 5000);
+                if (!exited)
+                {
+                    throw new VolumeMountException("Volume mounter cmd did not finish in time.");
+                }
+            }
+            catch (SystemException ex)
+            {
+                throw new VolumeMountException("Could not check status of volume mounter cmd.", ex);
+            }
+
+            if (p.ExitCode != 0)
+            {
+                throw new VolumeMountException($"Volume mounter cmd return non-successful exit code: {p.ExitCode}");
+            }
+        }
+
         private static void EnsureValidDriveLetter(string driveLetter)
         {
             if (driveLetter == null)
@@ -138,12 +149,25 @@ namespace DriveMounter
 
         private static void EnsureValidID(string id)
         {
-            if (id.Length == 0)
+            const string prefix = @"\\?\Volume";
+            const string suffix = @"\";
+
+            if (id.Length != (Guid.Empty.ToString("B").Length + prefix.Length + suffix.Length))
             {
-                throw new ArgumentException("Invalid volume ID.", nameof(id));
+                throw new ArgumentException("Invalid volume ID length.", nameof(id));
             }
 
-            // TODO.
+            if (!id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                !id.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Invalid volume ID format.", nameof(id));
+            }
+
+            string guid = id.Substring(prefix.Length, id.Length - prefix.Length - suffix.Length);
+            if (!Guid.TryParseExact(guid, "B", out _))
+            {
+                throw new ArgumentException("Invalid volume ID GUID.", nameof(id));
+            }
         }
     }
 }

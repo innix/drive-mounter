@@ -170,7 +170,7 @@ namespace DriveMounter
                 selectedVolume = volumes[idx];
             }
 
-            volumes = WindowsVolume.GetAllWindowsVolumes();
+            volumes = WindowsVolume.GetWindowsVolumes();
 
             volumesListView.Items.Clear();
             foreach (var volume in volumes)
