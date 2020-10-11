@@ -77,9 +77,13 @@ namespace DriveMounter
 
             string lastKnownDriveLetter =
                 driveLetterCache.GetDriveLetter(volume) ??
-                Prompt.ShowDialog("Enter a drive letter to mount to (e.g. D:):", "What drive letter to use?");
+                PromptForm.Show("Enter a drive letter to mount to (e.g. D:):", "What drive letter to use?");
 
-            if (string.IsNullOrEmpty(lastKnownDriveLetter))
+            if (lastKnownDriveLetter == null)
+            {
+                return;
+            }
+            else if (lastKnownDriveLetter == "")
             {
                 MessageBox.Show(
                     "Could not mount volume: last known drive letter could not be determined.",
